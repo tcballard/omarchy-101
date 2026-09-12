@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.tcballard.omarchy-101",
+  "name": "101",
+  "version": "0.1.0",
+  "author": "Tom Ballard",
+  "license": "MIT",
+  "description": "Learn Omarchy by doing: a welcome tour, guided exercises and optional desktop context.",
+  "kinds": [
+    "panel"
+  ],
+  "entryPoints": {
+    "panel": "Panel.qml"
+  },
+  "keepLoaded": true
+}
