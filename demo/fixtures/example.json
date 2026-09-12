@@ -1,0 +1,17 @@
+{
+  "description": "Fictional browser to terminal exercise; consumed by lesson tests through equivalent scalar fixtures",
+  "baseline": {
+    "available": true,
+    "app": "firefox",
+    "address": "a",
+    "monitor": "DP-1",
+    "workspace": 1
+  },
+  "current": {
+    "available": true,
+    "app": "kitty",
+    "address": "b",
+    "monitor": "DP-1",
+    "workspace": 1
+  }
+}
