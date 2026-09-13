@@ -22,5 +22,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libegl1 libopengl0
       - run: python3 -m pip install PySide6-Essentials==6.11.2
-      - name: Exercise QML lifecycle and real Qt settings offscreen
+      - name: Exercise QML lifecycle and atomic storage offscreen
         run: python3 tests/qml/runtime.py
+      - name: Package committed candidate and verify checksums
+        run: |
+          python3 scripts/package.py "$RUNNER_TEMP/101-package"
+          cd "$RUNNER_TEMP/101-package"
+          sha256sum --check SHA256SUMS

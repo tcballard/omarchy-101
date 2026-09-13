@@ -12,13 +12,13 @@
 - Kinds: panel (`Panel.qml`) plus singleton first-run service (`Service.qml`); `keepLoaded` retains the current lesson between summons.
 - Host lifecycle: `open(payloadJson)` / `close()`; input payload ignored intentionally. Repeated open reuses one surface. Closing stops observation and practice.
 - UI: Omarchy `BorderSurface`, `Button`, Color/Style/Border tokens; scrollable at small sizes; on-demand keyboard focus; visible close action and Escape.
-- State: panel owns current lesson, hint and exercise baseline. Qt Settings owns durable completion; schema 1, known IDs and evidence enums only. Restore rejects malformed/oversized payloads. A service owns only the one-time welcome decision. No recurring desktop polling is used.
+- State: panel owns current lesson, hint and exercise baseline. ProgressStore with atomic FileView writes owns durable completion; schema 1, known IDs and evidence enums only. Restore rejects malformed/oversized payloads. A service owns only the one-time welcome decision. No recurring desktop polling is used.
 - Context: a lazy-loaded `Context.qml` projects the native Hyprland singleton into bounded scalar values. QML evaluates changes; no external processes or raw socket parser.
 - Completion: only events after arming count; workspace change must stay on the baseline monitor and use numbered workspaces. Terminal exercise recognises a fixed app-class set. Manual completion remains separately labelled.
 - Dependencies: Omarchy Quattro, its Quickshell Hyprland module, QtQuick and QtCore Settings. Node/Python are development-only.
 - Network, credentials, privileged operations: none. User-requested shortcut lookup runs `hyprctl binds` in a fixed, bounded Bash/coreutils pipeline; never dispatches binding commands.
-- Failure: missing context leaves self-guided lessons available (including Loader import failure). Unknown apps do not become guessed terminals. A disappearing monitor cannot satisfy a workspace check. Disk-write failures need live verification and user-visible handling before release.
-- Removal: host removes plugin; independent progress INI remains, as documented.
+- Failure: missing context leaves self-guided lessons available (including Loader import failure). Unknown apps do not become guessed terminals. A disappearing monitor cannot satisfy a workspace check. Disk-write failures retain pending state and offer Retry; native FileView behaviour still needs live verification.
+- Removal: host removes plugin; independent progress/welcome JSON and legacy INI remain, as documented.
 
 ## Source evidence
 
@@ -73,3 +73,23 @@ Shortcut startup now handles Quickshell FailedToStart, which emits runningChange
 GuideButton scrolls keyboard-focused controls into view and exposes accessible button names. The offscreen Qt window test verifies focus scrolling and Escape propagation. Exercise methods reject invalid indexes, closed-panel completion and unavailable observation; selection disarms practice before changing state.
 
 Validation: 31 Node tests; actual Qt 6.11.2 QML load/lifecycle with narrowly substituted host boundaries; real QtCore on-disk persistence; native pipeline timeout/cancellation. CI includes all three layers. No live Omarchy session is available. Do not equate the harness with host integration or release readiness. QtCore Settings has no exposed write-error status: disk-full/read-only UI reporting remains a known limitation.
+
+
+## Save feedback follow-up
+
+The previous Qt Settings implementation is now a read-only migration source.
+ProgressStore owns separate progress and welcome JSON files. Asynchronous
+FileView saved/saveFailed signals drive busy, dirty and error state. Only one
+write is active per owner; subsequent changes queue the latest complete snapshot.
+Retries have distinct attempt IDs because FileView can deduplicate identical
+text after failed writes. The panel stays loaded on close, retaining unsaved
+changes. Shell restart is not a persistence guarantee; the UI says to retry first.
+
+Only a missing new-format file permits legacy migration. Other read failures
+block writes and reset. Unknown schemas remain untouched until explicit reset;
+the old INI is never overwritten. Loading disables progress mutations and defers
+lesson deep links until restoration. No runtime helper or extra process was added.
+
+The extended Qt harness uses a FileView boundary backed by real QSaveFile atomic
+writes and queued completion. It proves the QML error/retry state transitions and
+actual disk round-trips, not native Quickshell integration. See LIVE-TEST.md.

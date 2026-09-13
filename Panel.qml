@@ -16,12 +16,13 @@ Item {
   property var manifest: null
   property bool opened: false
   property bool started: false
-  property bool progressBlocked: false
+  readonly property bool progressBlocked: saved.blocked
   property bool resetPending: false
   property bool choosingLesson: false
   property bool welcomeInvocation: false
   property bool contextEnabled: false
   property int lessonIndex: 0
+  property int pendingLesson: -1
   property bool hintVisible: false
   property bool practising: false
   property bool detected: false
@@ -33,18 +34,19 @@ Item {
   readonly property var context: contextLoader.item ? contextLoader.item.snapshot : ({available: false})
   readonly property int completionCount: Object.keys(completed).length
 
-  Settings {
+  ProgressStore {
     id: saved
-    location: Paths.settingsUrl(Quickshell.env("HOME"), Quickshell.env("XDG_CONFIG_HOME"))
-    category: "101"
-    property string progress: ""
-    property string currentLesson: ""
+    objectName: "progressStore"
+    onRestored: {
+      root.completed = value.completed
+      var index = Lessons.lessons.findIndex(function(item) { return item.id === value.currentLesson })
+      root.lessonIndex = index >= 0 ? index : Lessons.nextIncomplete(root.completed)
+      if (root.pendingLesson >= 0) { root.select(root.pendingLesson); root.pendingLesson = -1 }
+    }
   }
-  Component.onCompleted: {
-    progressBlocked = !Lessons.progressReadable(saved.progress)
-    completed = Lessons.restore(saved.progress)
-    var index = Lessons.lessons.findIndex(function(item) { return item.id === saved.currentLesson })
-    lessonIndex = index >= 0 ? index : Lessons.nextIncomplete(completed)
+  readonly property var welcomeStore: shell && shell.serviceFor("io.github.tcballard.omarchy-101") ? shell.serviceFor("io.github.tcballard.omarchy-101").storage : null
+  function saveProgress() {
+    saved.save({version:1, completed:completed, currentLesson:lesson.id})
   }
   Shortcuts { id: shortcuts; enabledForSession: root.opened }
   function acknowledgeWelcome(action) {
@@ -52,6 +54,7 @@ Item {
     if (service) service.acknowledge(action)
   }
   function startTour() {
+    if (!saved.ready) return
     started = true
     choosingLesson = false
     select(Lessons.nextIncomplete(completed))
@@ -74,7 +77,8 @@ Item {
     if (requested >= 0) {
       started = true
       choosingLesson = false
-      select(requested)
+      if (saved.ready) select(requested)
+      else pendingLesson = requested
     }
     welcomeInvocation = requested < 0 && payload.welcome === true
     if (welcomeInvocation) { started = false; choosingLesson = false; acknowledgeWelcome("offered") }
@@ -89,6 +93,7 @@ Item {
     resetPending = false
   }
   function select(index) {
+    if (!saved.ready) return
     if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= Lessons.lessons.length) return
     // Disarm before changing the lesson: QML bindings evaluate synchronously.
     practising = false
@@ -97,24 +102,16 @@ Item {
     lessonIndex = index
     hintVisible = false
     articleError = ""
-    if (!progressBlocked) {
-      saved.currentLesson = lesson.id
-      saved.setValue("currentLesson", saved.currentLesson)
-      saved.sync()
-    }
+    saveProgress()
     scroller.contentY = 0
   }
   function mark(evidence) {
-    if (!opened || ["self", "observed"].indexOf(evidence) < 0) return
+    if (!saved.ready || !opened || ["self", "observed"].indexOf(evidence) < 0) return
     var next = Object.assign({}, completed)
     // A later self-confirmation must not erase previously observed evidence.
     if (next[lesson.id] !== "observed") next[lesson.id] = evidence
     completed = next
-    if (!progressBlocked) {
-      saved.progress = Lessons.encode(next)
-      saved.setValue("progress", saved.progress)
-      saved.sync()
-    }
+    saveProgress()
     practising = false
     if (completionCount === Lessons.lessons.length) acknowledgeWelcome("finished")
   }
@@ -162,8 +159,13 @@ Item {
             width: parent.width
             text: root.started ? root.completionCount + " / " + Lessons.lessons.length + " lessons completed" : "Welcome to Omarchy. Seven small lessons will help you find your feet. Skip, repeat or stop whenever you like."
           }
+          GuideText { width: parent.width; visible: !saved.ready; text: "Loading saved progress…" }
+          GuideText { width: parent.width; visible: saved.busy || saved.error !== ""; text: saved.busy ? "Saving progress…" : saved.error }
+          GuideButton { visible: saved.dirty && !saved.busy; text: "Retry saving progress"; onClicked: saved.retry() }
+          GuideText { width: parent.width; visible: !!root.welcomeStore && root.welcomeStore.error !== ""; text: root.welcomeStore ? root.welcomeStore.error : "" }
+          GuideButton { visible: !!root.welcomeStore && root.welcomeStore.dirty && !root.welcomeStore.busy; text: "Retry saving welcome choice"; onClicked: root.welcomeStore.retry() }
           GuideButton { text: root.started ? "Close guide" : "Not now"; focusable: true; onClicked: root.close() }
-          GuideButton { visible: !root.started; text: root.completionCount > 0 ? "Continue learning" : "Start the tour"; focusable: true; onClicked: root.startTour() }
+          GuideButton { visible: !root.started; enabled: saved.ready; text: root.completionCount > 0 ? "Continue learning" : "Start the tour"; focusable: true; onClicked: root.startTour() }
           GuideButton {
             visible: root.started
             text: root.choosingLesson ? "Back to exercise" : "Choose a lesson"
@@ -197,6 +199,7 @@ Item {
           }
           Column {
             visible: root.started && !root.choosingLesson
+            enabled: saved.ready
             width: parent.width
             spacing: Style.spacing.md
             GuideText { width: parent.width; text: (root.lessonIndex + 1) + ". " + root.lesson.title; font.pixelSize: Style.font.heading; font.bold: true }
@@ -252,7 +255,7 @@ Item {
             focusable: true
             onClicked: { root.practising = false; root.exerciseBaseline = ({}); root.contextEnabled = !root.contextEnabled }
           }
-          GuideText { width: parent.width; text: "Progress stays on this computer. Context switches off when you close 101."; font.pixelSize: Style.font.caption }
+          GuideText { width: parent.width; text: "Progress is saved on this computer when storage is available. Context switches off when you close 101."; font.pixelSize: Style.font.caption }
           GuideText {
             width: parent.width
             visible: root.progressBlocked
@@ -260,10 +263,11 @@ Item {
           }
           GuideButton {
             visible: root.completionCount > 0 || root.progressBlocked
+            enabled: saved.ready && !saved.readFailed && !saved.busy
             text: root.resetPending ? "Confirm reset" : "Reset lesson progress"; focusable: true
             onClicked: {
               if (!root.resetPending) { root.resetPending = true; return }
-              root.progressBlocked = false; root.completed = ({}); saved.progress = Lessons.encode({}); saved.setValue("progress", saved.progress); saved.sync(); root.select(0); root.resetPending = false
+              root.practising = false; root.detected = false; root.exerciseBaseline = ({}); root.completed = ({}); root.lessonIndex = 0; saved.reset({version:1, completed:{}, currentLesson:root.lesson.id}); root.resetPending = false
             }
           }
           GuideButton { visible: root.resetPending; text: "Keep my progress"; focusable: true; onClicked: root.resetPending = false }
