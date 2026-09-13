@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "Lessons.js" as Lessons
+import "Articles.js" as Articles
 import "Shortcuts.js" as ShortcutRules
 
 Item {
@@ -24,6 +25,8 @@ Item {
   property var baseline: ({})
   property var completed: ({})
   readonly property var lesson: Lessons.lessons[lessonIndex]
+  readonly property var article: Articles.forLesson(lesson.id)
+  property string articleError: ""
   readonly property var context: contextLoader.item ? contextLoader.item.snapshot : ({available: false})
   readonly property int completionCount: Object.keys(completed).length
 
@@ -63,7 +66,13 @@ Item {
     if (typeof payloadJson === "string" && payloadJson.length <= 1024) {
       try { payload = JSON.parse(payloadJson) || ({}) } catch (_) {}
     }
-    welcomeInvocation = payload.welcome === true
+    var requested = Articles.requestedLesson(payloadJson, Lessons.lessons)
+    if (requested >= 0) {
+      started = true
+      choosingLesson = false
+      select(requested)
+    }
+    welcomeInvocation = requested < 0 && payload.welcome === true
     if (welcomeInvocation) { started = false; choosingLesson = false; acknowledgeWelcome("offered") }
     opened = true
   }
@@ -80,6 +89,7 @@ Item {
     detected = false
     baseline = ({})
     hintVisible = false
+    articleError = ""
     saved.currentLesson = lesson.id
     saved.sync()
     scroller.contentY = 0
@@ -174,6 +184,17 @@ Item {
             spacing: Style.spacing.md
             GuideText { width: parent.width; text: (root.lessonIndex + 1) + ". " + root.lesson.title; font.pixelSize: Style.font.heading; font.bold: true }
             GuideText { width: parent.width; text: root.lesson.explain }
+            GuideText { width: parent.width; visible: !!root.article; text: root.article ? "Explaining Omarchy: " + root.article.title : "" }
+            Button {
+              visible: !!root.article
+              text: "Read Tom's explanation"; focusable: true
+              onClicked: {
+                var article = Articles.forLesson(root.lesson.id)
+                root.articleError = article && Qt.openUrlExternally(article.url) ? "" : "Could not open the article in your browser."
+              }
+            }
+            GuideText { width: parent.width; visible: root.articleError !== ""; text: root.articleError }
+
             GuideText { width: parent.width; text: "TRY THIS"; color: Color.accent; font.pixelSize: Style.font.caption }
             GuideText { width: parent.width; text: root.lesson.action }
             Button { text: "Find my shortcuts"; enabled: shortcuts.status !== "loading"; focusable: true; onClicked: shortcuts.refresh() }
