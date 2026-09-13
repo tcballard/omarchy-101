@@ -54,3 +54,9 @@ A later Rust helper should own screenshot capture, bounded model requests and ca
 - Added explicit shortcut lookup. Plain `hyprctl binds` avoids upstream's documented malformed JSON issue. Exact action descriptions and numbered workspace dispatchers only; unresolved symbols/modifiers/submaps do not become guessed shortcuts. Output capped at the producer, timed process group, cancellation guard, no overlapping requests, no command execution from parsed data. Only numeric workspace arguments survive parsing.
 - Sources checked: `shell/services/PluginShellApi.qml` and `bin/omarchy-menu-keybindings` on upstream quattro, 2026-09-13. The latter documents JSON and Lua keycode limitations. 101 does not execute the user's Lua configuration to recover unresolved bindings.
 - 21 portable tests pass (lesson transitions, welcome decisions, real-style binding records, limits, submaps, malformed data). Manifest validation passes. Live QML execution, persistence failures, first-enable timing and timeout descendant cleanup on target remain unverified.
+
+## 2026-09-13: article companion support
+
+Added a curated Articles.js catalog and a user-clicked browser link per mapped lesson. No URLs are accepted from IPC payloads. Known lesson IDs can be selected through the existing summon payload; selecting a lesson cancels earlier practice, clears hints and preserves progress. Invalid payloads retain normal opening behaviour. This change adds no custom URI handler or automatic feed fetch.
+
+26 portable tests pass. Actual published article URLs remain unverified; the recovered Super draft title has no active URL. ARTICLE-COMPANIONS.md documents the mapping workflow and copyable per-lesson command. Live QML/browser validation remains outstanding. This builds on the welcome-tour PR rather than duplicating its changes in a main-targeted review.

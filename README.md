@@ -70,3 +70,7 @@ The welcome service stores its decision separately in the `Welcome` category of 
 ```
 
 Uses Python 3 for the bundle's manifest validator and Node.js for the pure lesson tests. CI runs these portable checks. See `DESIGN.md` for host evidence and the live verification checklist. The placeholder scaffold image is intentionally not presented as a screenshot.
+
+## Explaining Omarchy companions
+
+101 supports opening a specific lesson from a post's copyable command and showing **Read Tom's explanation** for a curated article mapping. See [ARTICLE-COMPANIONS.md](ARTICLE-COMPANIONS.md). Actual published article URLs are still needed; no article button is shown for unverified mappings.
