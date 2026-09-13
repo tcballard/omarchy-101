@@ -10,21 +10,16 @@ Item {
   property var manifest: null
   property int attempts: 0
   property bool requested: false
-  Settings {
-    id: welcome
-    location: Paths.settingsUrl(Quickshell.env("HOME"), Quickshell.env("XDG_CONFIG_HOME"))
-    category: "Welcome"
-    property string state: ""
-  }
+  readonly property alias storage: welcome
+  ProgressStore { id: welcome; kind: "welcome" }
   function acknowledge(action) {
-    welcome.state = Welcome.acknowledge(welcome.state, action)
-    welcome.setValue("state", welcome.state)
-    welcome.sync()
+    if (!welcome.ready || welcome.blocked) return
+    welcome.save({version:1, state:Welcome.acknowledge(welcome.value.state, action)})
   }
   Timer {
     interval: 1000
     repeat: true
-    running: !!root.shell && !root.requested && root.attempts < 5 && Welcome.shouldOffer(welcome.state)
+    running: !!root.shell && !root.requested && root.attempts < 5 && welcome.ready && !welcome.blocked && Welcome.shouldOffer(welcome.value.state)
     onTriggered: {
       root.attempts += 1
       // Mark offered only when the panel actually opens and acknowledges it.

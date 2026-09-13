@@ -1,13 +1,13 @@
 """Execute production QML logic offscreen; replace only unavailable host boundaries.
 This does not validate Quickshell geometry, IPC, native process signals or Hyprland.
 """
-import os, sys, tempfile, shutil, re
+import os, sys, tempfile, shutil, re, json
 from pathlib import Path
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault('QT_QUICK_BACKEND', 'software')
-from PySide6.QtCore import QUrl, qInstallMessageHandler, QObject, QSettings, Qt
+from PySide6.QtCore import QUrl, qInstallMessageHandler, QObject, QSettings, Qt, Signal, Property, Slot, QTimer, QSaveFile, QIODevice
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtQml import QQmlEngine, QQmlComponent
+from PySide6.QtQml import QQmlEngine, QQmlComponent, qmlRegisterType
 from PySide6.QtTest import QTest
 from PySide6.QtQuick import QQuickWindow, QQuickItem
 
@@ -77,13 +77,54 @@ QtObject {
  function summon(id, payload) { summons += 1; guide.open(payload); return true }
 }''')
 
+# FileView is a host boundary. Exercise real Qt atomic disk writes via QSaveFile,
+# with queued completion signals; native Quickshell integration remains a host gate.
+class TestFileView(QObject):
+    loaded = Signal()
+    loadFailed = Signal(int)
+    saved = Signal()
+    saveFailed = Signal(int)
+    pathChanged = Signal()
+    def __init__(self, parent=None):
+        super().__init__(parent); self._path=''; self._text=''
+    def get_path(self): return self._path
+    def set_path(self, path):
+        self._path=path; self.pathChanged.emit()
+        if path: QTimer.singleShot(0,self.read)
+    path = Property(str,get_path,set_path,notify=pathChanged)
+    printErrors = Property(bool,lambda self:False,lambda self,v:None)
+    atomicWrites = Property(bool,lambda self:True,lambda self,v:None)
+    def read(self):
+        try:
+            self._text=Path(self._path).read_text(); self.loaded.emit()
+        except FileNotFoundError: self.loadFailed.emit(2)
+        except OSError: self.loadFailed.emit(1)
+    @Slot(result=str)
+    def text(self): return self._text
+    @Slot(str)
+    def setText(self,text):
+        def write():
+            f=QSaveFile(self._path)
+            data=text.encode()
+            if not f.open(QIODevice.WriteOnly): self.saveFailed.emit(1); return
+            if f.write(data) != len(data): f.cancelWriting(); self.saveFailed.emit(1); return
+            if not f.commit(): self.saveFailed.emit(1); return
+            self._text=text; self.saved.emit()
+        QTimer.singleShot(0,write)
+qmlRegisterType(TestFileView,'TestIO',1,0,'FileView')
+store=stage/'ProgressStore.qml'
+store.write_text('import TestIO 1.0\n'+store.read_text())
+(stage/'FileViewError.qml').write_text('pragma Singleton\nimport QtQuick\nQtObject { enum Error { PermissionDenied = 1, FileNotFound = 2 } }')
+with (stage/'qmldir').open('a') as f: f.write('\nsingleton FileViewError 1.0 FileViewError.qml\n')
+
 engine = QQmlEngine()
 components=[]
-def create(name):
+def create(name, settle=True):
     component=QQmlComponent(engine,QUrl.fromLocalFile(str(stage/name)))
     obj=component.create()
     assert obj is not None, '\n'.join(e.toString() for e in component.errors())
     components.append(component)
+    if settle: QTest.qWait(30)
     return obj
 
 def call(obj, expr):
@@ -92,6 +133,12 @@ def call(obj, expr):
     value=engine.evaluate(expr)
     assert not value.isError(), value.toString()
     return value.toVariant()
+
+early=create('Panel.qml',False)
+call(early,'subject.open("{\\"lesson\\":\\"browser\\"}")')
+QTest.qWait(80)
+assert early.property('lessonIndex') == 4, 'targeted summon must survive initial asynchronous loading'
+early.deleteLater(); QTest.qWait(20)
 
 panel=create('Panel.qml')
 window=QQuickWindow(); window.resize(600,900)
@@ -120,7 +167,8 @@ assert not panel.property('opened'), 'Escape from a focused button must close th
 # Settings is real QtCore, not a stub; verify actual on-disk progress and reload.
 QTest.qWait(600)
 ini = stage / 'config' / 'omarchy-101.ini'
-assert ini.exists() and 'terminal' in ini.read_text(), 'completion must reach disk'
+progress_file = stage / 'config' / 'omarchy-101-progress.json'
+assert progress_file.exists() and 'terminal' in progress_file.read_text(), 'completion must reach disk'
 restored=create('Panel.qml')
 assert restored.property('completionCount') == 1, 'progress must survive a new panel'
 # Disarming must happen before changing any exercise state.
@@ -164,22 +212,75 @@ service2=create('Service.qml'); service2.setProperty('shell',host)
 QTest.qWait(1100)
 assert host.property('summons') == 1, 'dismissed welcome must not be offered on reload'
 
-# A future schema must remain intact when practising in the current version.
-settings=QSettings(str(ini),QSettings.IniFormat)
+# A failed write keeps the current session and can retry the same value.
+progress_file.unlink(); progress_file.mkdir()
+call(panel,'subject.open("{}"); subject.mark("self")')
+QTest.qWait(50)
+store=panel.findChild(QObject,'progressStore')
+assert store.property('dirty') and store.property('error') and not store.property('busy')
+assert panel.property('completionCount') == 2
+progress_file.rmdir()
+call(store,'subject.retry()')
+QTest.qWait(50)
+assert not store.property('dirty') and not store.property('error')
+assert len(json.loads(progress_file.read_text())['completed']) == 2
+# Rapid changes while an asynchronous write is active must save the latest state.
+call(panel,'subject.select(3); subject.mark("self"); subject.select(4); subject.mark("self")')
+QTest.qWait(80)
+assert json.loads(progress_file.read_text())['currentLesson'] == 'browser'
+assert len(json.loads(progress_file.read_text())['completed']) == 4
+# Reset failure is visible and retryable too.
+progress_file.unlink(); progress_file.mkdir()
+call(store,'subject.reset({version:1,completed:{},currentLesson:"super"})')
+QTest.qWait(50)
+assert store.property('dirty') and store.property('error')
+progress_file.rmdir(); call(store,'subject.retry()'); QTest.qWait(50)
+assert json.loads(progress_file.read_text())['completed'] == {}
+# A future JSON schema is preserved even when practising.
 future='{"version":9,"completed":{"future-lesson":"observed"}}'
-settings.setValue('101/progress',future); settings.sync()
+progress_file.write_text(future)
 protected=create('Panel.qml')
 assert protected.property('progressBlocked')
 call(protected,'subject.open("{}"); subject.mark("self"); subject.select(1)')
-QTest.qWait(600)
-settings.sync()
-assert settings.value('101/progress') == future, 'unreadable progress must not be overwritten'
+QTest.qWait(50)
+assert progress_file.read_text() == future
+# A read failure is not treated as an empty save, and reset cannot bypass it.
+progress_file.unlink(); progress_file.mkdir()
+unreadable=create('ProgressStore.qml')
+assert unreadable.property('readFailed') and unreadable.property('blocked')
+call(unreadable,'subject.reset({version:1,completed:{},currentLesson:"super"})')
+assert unreadable.property('blocked') and progress_file.is_dir()
+progress_file.rmdir()
+# Real QtCore migration: original INI remains byte-for-byte unchanged.
+settings=QSettings(str(ini),QSettings.IniFormat)
+settings.setValue('101/progress','{"version":1,"completed":{"terminal":"observed"}}')
+settings.setValue('101/currentLesson','terminal'); settings.sync()
+legacy_bytes=ini.read_bytes()
+migrated=create('Panel.qml')
+assert migrated.property('completionCount') == 1 and migrated.property('lessonIndex') == 1
+call(migrated,'subject.open("{}"); subject.mark("self")'); QTest.qWait(50)
+assert ini.read_bytes() == legacy_bytes
+assert json.loads(progress_file.read_text())['completed']['terminal'] == 'observed'
+# Corrupt legacy data is protected when no new-format file exists.
+progress_file.unlink()
+settings.setValue('101/progress',future); settings.sync()
+legacy_protected=create('Panel.qml')
+assert legacy_protected.property('progressBlocked')
+call(legacy_protected,'subject.open("{}"); subject.mark("self")'); QTest.qWait(50)
+assert not progress_file.exists()
+# Failed welcome writes expose the same retry state through the service.
+welcome_file=stage/'config'/'omarchy-101-welcome.json'
+welcome_file.unlink(); welcome_file.mkdir()
+call(service,'subject.acknowledge("finished")'); QTest.qWait(50)
+assert call(service,'subject.storage.dirty && subject.storage.error.length > 0')
+welcome_file.rmdir(); call(service,'subject.storage.retry()'); QTest.qWait(50)
+assert json.loads(welcome_file.read_text())['state'] == 'finished'
 
 QTest.qWait(20)
 errors=[m for m in messages if any(x in m for x in ['TypeError','ReferenceError','Error:','Cannot assign','Binding loop'])]
 assert not errors, '\n'.join(errors)
-print('QML: load, summon, selection, disk persistence, schema preservation, cancellation, process failure and welcome reload passed')
-for obj in [panel,restored,protected,shortcuts,service,service2,host]: obj.deleteLater()
+print('QML: load, summon, selection, disk persistence, schema preservation, atomic save failure/retry, migration, queued writes, cancellation, process failure and welcome reload passed')
+for obj in [panel,restored,protected,unreadable,migrated,legacy_protected,shortcuts,service,service2,host]: obj.deleteLater()
 QTest.qWait(20)
 engine.deleteLater()
 QTest.qWait(20)
