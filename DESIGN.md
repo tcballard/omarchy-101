@@ -60,3 +60,16 @@ A later Rust helper should own screenshot capture, bounded model requests and ca
 Added a curated Articles.js catalog and a user-clicked browser link per mapped lesson. No URLs are accepted from IPC payloads. Known lesson IDs can be selected through the existing summon payload; selecting a lesson cancels earlier practice, clears hints and preserves progress. Invalid payloads retain normal opening behaviour. This change adds no custom URI handler or automatic feed fetch.
 
 26 portable tests pass. Actual published article URLs remain unverified; the recovered Super draft title has no active URL. ARTICLE-COMPANIONS.md documents the mapping workflow and copyable per-lesson command. Live QML/browser validation remains outstanding. This builds on the welcome-tour PR rather than duplicating its changes in a main-targeted review.
+
+
+## 2026-09-13: runtime hardening
+
+The first actual Qt load reproduced two fatal errors: `baseline` redeclared the final Item anchor property, and QtCore Settings does not have `fileName`. Renamed the exercise baseline and switched to the supported `location` URL with encoded path segments.
+
+The Qt harness also reproduced welcome reoffering after immediate reload: assigning the Settings property and calling sync did not synchronously persist the pending property update. Explicit `setValue` before sync fixes it. Real-file write/reload tests now cover this path. Unknown/corrupt progress remains untouched during session practice; reset requires a second confirmation.
+
+Shortcut startup now handles Quickshell FailedToStart, which emits runningChanged but no exited signal; a seven-second UI watchdog is an additional fallback. Real process tests found the TERM-plus-grace wrapper could outlive its supervisor through TERM-ignoring descendants. A GNU timeout KILL deadline plus SIGALRM cancellation now terminates the whole group in both tested paths (about 5.1 seconds at timeout and 0.4 seconds on cancellation).
+
+GuideButton scrolls keyboard-focused controls into view and exposes accessible button names. The offscreen Qt window test verifies focus scrolling and Escape propagation. Exercise methods reject invalid indexes, closed-panel completion and unavailable observation; selection disarms practice before changing state.
+
+Validation: 31 Node tests; actual Qt 6.11.2 QML load/lifecycle with narrowly substituted host boundaries; real QtCore on-disk persistence; native pipeline timeout/cancellation. CI includes all three layers. No live Omarchy session is available. Do not equate the harness with host integration or release readiness. QtCore Settings has no exposed write-error status: disk-full/read-only UI reporting remains a known limitation.

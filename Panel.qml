@@ -1,5 +1,6 @@
 import QtQuick
 import QtCore
+import "Paths.js" as Paths
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
@@ -15,6 +16,8 @@ Item {
   property var manifest: null
   property bool opened: false
   property bool started: false
+  property bool progressBlocked: false
+  property bool resetPending: false
   property bool choosingLesson: false
   property bool welcomeInvocation: false
   property bool contextEnabled: false
@@ -22,7 +25,7 @@ Item {
   property bool hintVisible: false
   property bool practising: false
   property bool detected: false
-  property var baseline: ({})
+  property var exerciseBaseline: ({})
   property var completed: ({})
   readonly property var lesson: Lessons.lessons[lessonIndex]
   readonly property var article: Articles.forLesson(lesson.id)
@@ -32,12 +35,13 @@ Item {
 
   Settings {
     id: saved
-    fileName: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/omarchy-101.ini"
+    location: Paths.settingsUrl(Quickshell.env("HOME"), Quickshell.env("XDG_CONFIG_HOME"))
     category: "101"
     property string progress: ""
     property string currentLesson: ""
   }
   Component.onCompleted: {
+    progressBlocked = !Lessons.progressReadable(saved.progress)
     completed = Lessons.restore(saved.progress)
     var index = Lessons.lessons.findIndex(function(item) { return item.id === saved.currentLesson })
     lessonIndex = index >= 0 ? index : Lessons.nextIncomplete(completed)
@@ -55,7 +59,7 @@ Item {
   }
   Loader { id: contextLoader; active: root.opened && root.contextEnabled; source: "Context.qml" }
   onContextChanged: {
-    if (opened && practising && !detected && Lessons.observed(lesson.check, baseline, context)) {
+    if (opened && practising && !detected && Lessons.observed(lesson.check, exerciseBaseline, context)) {
       detected = true
       practising = false
       mark("observed")
@@ -80,37 +84,49 @@ Item {
     if (!started) acknowledgeWelcome("dismissed")
     opened = false
     practising = false
-    baseline = ({})
+    exerciseBaseline = ({})
     contextEnabled = false
+    resetPending = false
   }
   function select(index) {
-    lessonIndex = Math.max(0, Math.min(Lessons.lessons.length - 1, index))
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= Lessons.lessons.length) return
+    // Disarm before changing the lesson: QML bindings evaluate synchronously.
     practising = false
     detected = false
-    baseline = ({})
+    exerciseBaseline = ({})
+    lessonIndex = index
     hintVisible = false
     articleError = ""
-    saved.currentLesson = lesson.id
-    saved.sync()
+    if (!progressBlocked) {
+      saved.currentLesson = lesson.id
+      saved.setValue("currentLesson", saved.currentLesson)
+      saved.sync()
+    }
     scroller.contentY = 0
   }
   function mark(evidence) {
+    if (!opened || ["self", "observed"].indexOf(evidence) < 0) return
     var next = Object.assign({}, completed)
     // A later self-confirmation must not erase previously observed evidence.
     if (next[lesson.id] !== "observed") next[lesson.id] = evidence
     completed = next
-    saved.progress = Lessons.encode(next)
-    saved.sync()
+    if (!progressBlocked) {
+      saved.progress = Lessons.encode(next)
+      saved.setValue("progress", saved.progress)
+      saved.sync()
+    }
     practising = false
     if (completionCount === Lessons.lessons.length) acknowledgeWelcome("finished")
   }
   function practise() {
-    baseline = Lessons.cleanContext(context)
+    if (!opened || !contextEnabled || !context.available || lesson.check === "manual") return
+    exerciseBaseline = Lessons.cleanContext(context)
     detected = false
     practising = true
   }
   PanelWindow {
     id: panel
+    objectName: "guideWindow"
     visible: root.opened
     anchors { top: true; right: true }
     margins { top: Style.gapsOut + Style.space(40); right: Style.gapsOut }
@@ -129,6 +145,7 @@ Item {
       padding: 0
       Flickable {
         id: scroller
+        objectName: "guideScroller"
         anchors.fill: parent
         anchors.margins: Style.spacing.panelPadding
         contentHeight: content.height
@@ -145,9 +162,9 @@ Item {
             width: parent.width
             text: root.started ? root.completionCount + " / " + Lessons.lessons.length + " lessons completed" : "Welcome to Omarchy. Seven small lessons will help you find your feet. Skip, repeat or stop whenever you like."
           }
-          Button { text: root.started ? "Close guide" : "Not now"; focusable: true; onClicked: root.close() }
-          Button { visible: !root.started; text: root.completionCount > 0 ? "Continue learning" : "Start the tour"; focusable: true; onClicked: root.startTour() }
-          Button {
+          GuideButton { text: root.started ? "Close guide" : "Not now"; focusable: true; onClicked: root.close() }
+          GuideButton { visible: !root.started; text: root.completionCount > 0 ? "Continue learning" : "Start the tour"; focusable: true; onClicked: root.startTour() }
+          GuideButton {
             visible: root.started
             text: root.choosingLesson ? "Back to exercise" : "Choose a lesson"
             focusable: true
@@ -164,7 +181,7 @@ Item {
                 required property int index
                 width: parent.width
                 GuideText { width: parent.width; text: (index + 1) + ". " + modelData.title }
-                Button {
+                GuideButton {
                   text: root.completed[modelData.id] ? "Practise again" : "Try lesson"
                   focusable: true
                   onClicked: { root.select(index); root.choosingLesson = false }
@@ -185,7 +202,7 @@ Item {
             GuideText { width: parent.width; text: (root.lessonIndex + 1) + ". " + root.lesson.title; font.pixelSize: Style.font.heading; font.bold: true }
             GuideText { width: parent.width; text: root.lesson.explain }
             GuideText { width: parent.width; visible: !!root.article; text: root.article ? "Explaining Omarchy: " + root.article.title : "" }
-            Button {
+            GuideButton {
               visible: !!root.article
               text: "Read Tom's explanation"; focusable: true
               onClicked: {
@@ -197,7 +214,7 @@ Item {
 
             GuideText { width: parent.width; text: "TRY THIS"; color: Color.accent; font.pixelSize: Style.font.caption }
             GuideText { width: parent.width; text: root.lesson.action }
-            Button { text: "Find my shortcuts"; enabled: shortcuts.status !== "loading"; focusable: true; onClicked: shortcuts.refresh() }
+            GuideButton { text: "Find my shortcuts"; enabled: shortcuts.status !== "loading"; focusable: true; onClicked: shortcuts.refresh() }
             GuideText {
               width: parent.width
               text: {
@@ -208,9 +225,9 @@ Item {
                 return matches.length ? "From your current bindings:\n" + matches.join("\n") : "No matching shortcut could be resolved. Use your menu or mouse."
               }
             }
-            Button { text: root.hintVisible ? "Hide hint" : "Give me a hint"; focusable: true; onClicked: root.hintVisible = !root.hintVisible }
+            GuideButton { text: root.hintVisible ? "Hide hint" : "Give me a hint"; focusable: true; onClicked: root.hintVisible = !root.hintVisible }
             GuideText { width: parent.width; visible: root.hintVisible; text: root.lesson.hint }
-            Button {
+            GuideButton {
               visible: root.lesson.check !== "manual" && root.contextEnabled && root.context.available && !root.practising
               text: "Watch me try"; focusable: true; onClicked: root.practise()
             }
@@ -219,28 +236,37 @@ Item {
               visible: root.practising || root.detected || !!root.completed[root.lesson.id]
               text: root.practising ? "Ready. Try the action now. If it cannot be detected, you can confirm it below." : (root.completed[root.lesson.id] === "observed" ? "Observed on your desktop. Nicely done." : "Completed — confirmed by you.")
             }
-            Button { text: "I've done this"; focusable: true; onClicked: root.mark("self") }
+            GuideButton { text: "I've done this"; focusable: true; onClicked: root.mark("self") }
             Flow {
               width: parent.width; spacing: Style.spacing.sm
-              Button { text: "Previous"; enabled: root.lessonIndex > 0; focusable: true; onClicked: root.select(root.lessonIndex - 1) }
-              Button { text: "Next"; enabled: root.lessonIndex < Lessons.lessons.length - 1; focusable: true; onClicked: root.select(root.lessonIndex + 1) }
+              GuideButton { text: "Previous"; enabled: root.lessonIndex > 0; focusable: true; onClicked: root.select(root.lessonIndex - 1) }
+              GuideButton { text: "Next"; enabled: root.lessonIndex < Lessons.lessons.length - 1; focusable: true; onClicked: root.select(root.lessonIndex + 1) }
             }
             GuideText { width: parent.width; text: "Skipping ahead does not mark a lesson complete."; font.pixelSize: Style.font.caption }
           }
           Rectangle { width: parent.width; height: 1; color: Color.popups.border }
           GuideText { width: parent.width; text: "Help for this moment"; font.bold: true }
           GuideText { width: parent.width; text: root.contextEnabled ? Lessons.suggestion(root.context) : "Allow app and workspace context while this guide is open. No screenshots, window titles, typed text or uploads." }
-          Button {
+          GuideButton {
             text: root.contextEnabled ? "Stop using desktop context" : "Use desktop context"
             focusable: true
-            onClicked: { root.practising = false; root.baseline = ({}); root.contextEnabled = !root.contextEnabled }
+            onClicked: { root.practising = false; root.exerciseBaseline = ({}); root.contextEnabled = !root.contextEnabled }
           }
           GuideText { width: parent.width; text: "Progress stays on this computer. Context switches off when you close 101."; font.pixelSize: Style.font.caption }
-          Button {
-            visible: root.completionCount > 0
-            text: "Reset lesson progress"; focusable: true
-            onClicked: { root.completed = ({}); saved.progress = Lessons.encode({}); saved.sync(); root.select(0) }
+          GuideText {
+            width: parent.width
+            visible: root.progressBlocked
+            text: "Saved progress could not be understood. It has been preserved. You can practise for this session, or reset it below."
           }
+          GuideButton {
+            visible: root.completionCount > 0 || root.progressBlocked
+            text: root.resetPending ? "Confirm reset" : "Reset lesson progress"; focusable: true
+            onClicked: {
+              if (!root.resetPending) { root.resetPending = true; return }
+              root.progressBlocked = false; root.completed = ({}); saved.progress = Lessons.encode({}); saved.setValue("progress", saved.progress); saved.sync(); root.select(0); root.resetPending = false
+            }
+          }
+          GuideButton { visible: root.resetPending; text: "Keep my progress"; focusable: true; onClicked: root.resetPending = false }
         }
       }
     }

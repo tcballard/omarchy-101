@@ -56,3 +56,16 @@ function nextIncomplete(completed) {
   for (var i = 0; i < lessons.length; i++) if (!completed[lessons[i].id]) return i;
   return 0;
 }
+
+function progressReadable(encoded) {
+  if (encoded === "") return true;
+  if (typeof encoded !== "string" || encoded.length > 4096) return false;
+  try {
+    var value = JSON.parse(encoded);
+    if (!value || value.version !== 1 || !value.completed || typeof value.completed !== "object" || Array.isArray(value.completed)) return false;
+    return Object.keys(value.completed).every(function(id) {
+      return lessons.some(function(lesson) { return lesson.id === id }) &&
+        ["self", "observed"].indexOf(value.completed[id]) >= 0;
+    });
+  } catch (_) { return false; }
+}
