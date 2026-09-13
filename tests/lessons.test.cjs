@@ -50,7 +50,7 @@ test('lesson identifiers are unique and each has actionable copy and a known che
  assert.equal(new Set(engine.lessons.map(x=>x.id)).size,engine.lessons.length);
  for (const lesson of engine.lessons) {
   for (const key of ['title','explain','action','hint']) assert.ok(lesson[key].length > 10);
-  assert.ok(['manual','terminal','workspace'].includes(lesson.check));
+  assert.ok(['manual','terminal','workspace','browser','focus'].includes(lesson.check));
  }
 });
 test('suggestions distinguish unavailable context, terminal, browser and other apps', () => {
@@ -58,4 +58,21 @@ test('suggestions distinguish unavailable context, terminal, browser and other a
  assert.match(engine.suggestion({...base,app:'kitty'}), /terminal/);
  assert.match(engine.suggestion(base), /browser/);
  assert.match(engine.suggestion({...base,app:'other'}), /one small thing/);
+});
+test('browser observation requires a new recognised focus', () => {
+ const browser = {...base, app:'firefox'};
+ assert.equal(engine.observed('browser', browser, browser), false);
+ assert.equal(engine.observed('browser', {...base, app:'kitty'}, browser), true);
+ assert.equal(engine.observed('browser', base, {...base,app:'firefox-fake',address:'b'}), false);
+});
+test('focus exercise excludes workspace and monitor changes and missing addresses', () => {
+ assert.equal(engine.observed('focus',base,{...base,address:'b'}),true);
+ for (const change of [{workspace:2},{monitor:'DP-2'},{address:''},{available:false}])
+  assert.equal(engine.observed('focus',base,{...base,address:'b',...change}),false);
+});
+test('resume skips completed lessons while retaining old lesson IDs', () => {
+ assert.equal(engine.nextIncomplete({super:'self'}),1);
+ const all={}; engine.lessons.forEach(x=>all[x.id]='self');
+ assert.equal(engine.nextIncomplete(all),0);
+ assert.equal(engine.restore('{"version":1,"completed":{"help":"self"}}').help,'self');
 });

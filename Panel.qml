@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "Lessons.js" as Lessons
+import "Shortcuts.js" as ShortcutRules
 
 Item {
   id: root
@@ -13,6 +14,8 @@ Item {
   property var manifest: null
   property bool opened: false
   property bool started: false
+  property bool choosingLesson: false
+  property bool welcomeInvocation: false
   property bool contextEnabled: false
   property int lessonIndex: 0
   property bool hintVisible: false
@@ -29,8 +32,24 @@ Item {
     fileName: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/omarchy-101.ini"
     category: "101"
     property string progress: ""
+    property string currentLesson: ""
   }
-  Component.onCompleted: completed = Lessons.restore(saved.progress)
+  Component.onCompleted: {
+    completed = Lessons.restore(saved.progress)
+    var index = Lessons.lessons.findIndex(function(item) { return item.id === saved.currentLesson })
+    lessonIndex = index >= 0 ? index : Lessons.nextIncomplete(completed)
+  }
+  Shortcuts { id: shortcuts; enabledForSession: root.opened }
+  function acknowledgeWelcome(action) {
+    var service = shell ? shell.serviceFor("io.github.tcballard.omarchy-101") : null
+    if (service) service.acknowledge(action)
+  }
+  function startTour() {
+    started = true
+    choosingLesson = false
+    select(Lessons.nextIncomplete(completed))
+    acknowledgeWelcome("started")
+  }
   Loader { id: contextLoader; active: root.opened && root.contextEnabled; source: "Context.qml" }
   onContextChanged: {
     if (opened && practising && !detected && Lessons.observed(lesson.check, baseline, context)) {
@@ -40,10 +59,16 @@ Item {
     }
   }
   function open(payloadJson) {
-    // Invocation cannot enable observation, inject completion, or run commands.
+    var payload = ({})
+    if (typeof payloadJson === "string" && payloadJson.length <= 1024) {
+      try { payload = JSON.parse(payloadJson) || ({}) } catch (_) {}
+    }
+    welcomeInvocation = payload.welcome === true
+    if (welcomeInvocation) { started = false; choosingLesson = false; acknowledgeWelcome("offered") }
     opened = true
   }
   function close() {
+    if (!started) acknowledgeWelcome("dismissed")
     opened = false
     practising = false
     baseline = ({})
@@ -55,14 +80,19 @@ Item {
     detected = false
     baseline = ({})
     hintVisible = false
+    saved.currentLesson = lesson.id
+    saved.sync()
+    scroller.contentY = 0
   }
   function mark(evidence) {
     var next = Object.assign({}, completed)
-    next[lesson.id] = evidence
+    // A later self-confirmation must not erase previously observed evidence.
+    if (next[lesson.id] !== "observed") next[lesson.id] = evidence
     completed = next
     saved.progress = Lessons.encode(next)
     saved.sync()
     practising = false
+    if (completionCount === Lessons.lessons.length) acknowledgeWelcome("finished")
   }
   function practise() {
     baseline = Lessons.cleanContext(context)
@@ -88,6 +118,7 @@ Item {
       borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, 1)
       padding: 0
       Flickable {
+        id: scroller
         anchors.fill: parent
         anchors.margins: Style.spacing.panelPadding
         contentHeight: content.height
@@ -102,18 +133,60 @@ Item {
           GuideText { width: parent.width; text: "Explaining Omarchy. Now try it."; color: Color.accent }
           GuideText {
             width: parent.width
-            text: root.started ? root.completionCount + " / " + Lessons.lessons.length + " lessons completed" : "Make yourself at home. Four small lessons, at your pace. You stay in control of your desktop."
+            text: root.started ? root.completionCount + " / " + Lessons.lessons.length + " lessons completed" : "Welcome to Omarchy. Seven small lessons will help you find your feet. Skip, repeat or stop whenever you like."
           }
-          Button { text: root.started ? "Close guide" : "Maybe later"; focusable: true; onClicked: root.close() }
-          Button { visible: !root.started; text: "Start the tour"; focusable: true; onClicked: root.started = true }
-          Column {
+          Button { text: root.started ? "Close guide" : "Not now"; focusable: true; onClicked: root.close() }
+          Button { visible: !root.started; text: root.completionCount > 0 ? "Continue learning" : "Start the tour"; focusable: true; onClicked: root.startTour() }
+          Button {
             visible: root.started
+            text: root.choosingLesson ? "Back to exercise" : "Choose a lesson"
+            focusable: true
+            onClicked: { root.practising = false; root.choosingLesson = !root.choosingLesson }
+          }
+          Column {
+            visible: root.started && root.choosingLesson
+            width: parent.width
+            spacing: Style.spacing.sm
+            Repeater {
+              model: Lessons.lessons
+              delegate: Column {
+                required property var modelData
+                required property int index
+                width: parent.width
+                GuideText { width: parent.width; text: (index + 1) + ". " + modelData.title }
+                Button {
+                  text: root.completed[modelData.id] ? "Practise again" : "Try lesson"
+                  focusable: true
+                  onClicked: { root.select(index); root.choosingLesson = false }
+                }
+              }
+            }
+          }
+          GuideText {
+            visible: root.completionCount === Lessons.lessons.length
+            width: parent.width
+            text: "Tour complete. You have practised the basics — come back any time to try them again."
+            color: Color.accent
+          }
+          Column {
+            visible: root.started && !root.choosingLesson
             width: parent.width
             spacing: Style.spacing.md
             GuideText { width: parent.width; text: (root.lessonIndex + 1) + ". " + root.lesson.title; font.pixelSize: Style.font.heading; font.bold: true }
             GuideText { width: parent.width; text: root.lesson.explain }
             GuideText { width: parent.width; text: "TRY THIS"; color: Color.accent; font.pixelSize: Style.font.caption }
             GuideText { width: parent.width; text: root.lesson.action }
+            Button { text: "Find my shortcuts"; enabled: shortcuts.status !== "loading"; focusable: true; onClicked: shortcuts.refresh() }
+            GuideText {
+              width: parent.width
+              text: {
+                if (shortcuts.status === "loading") return "Reading your configured shortcuts…"
+                if (shortcuts.status === "idle") return "You can use the mouse, or look up your current shortcuts."
+                if (shortcuts.status !== "ready") return "Shortcuts could not be resolved. Use your menu or mouse, or try again."
+                var matches = ShortcutRules.forLesson(shortcuts.bindings, root.lesson.id)
+                return matches.length ? "From your current bindings:\n" + matches.join("\n") : "No matching shortcut could be resolved. Use your menu or mouse."
+              }
+            }
             Button { text: root.hintVisible ? "Hide hint" : "Give me a hint"; focusable: true; onClicked: root.hintVisible = !root.hintVisible }
             GuideText { width: parent.width; visible: root.hintVisible; text: root.lesson.hint }
             Button {
