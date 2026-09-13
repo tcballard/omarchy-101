@@ -8,7 +8,7 @@ A native Omarchy Quattro plugin that helps you learn your desktop through short 
 
 Implemented: a one-time welcome invitation and seven-lesson tour, hints, previous/next navigation, repeatable exercises, local completion records, optional app/workspace context and contextual suggestions. Terminal and workspace exercises distinguish observed actions from self-confirmed completion.
 
-This is an unvalidated-on-desktop development preview. Portable tests pass; actual Omarchy loading, keyboard focus, screen placement and settings writes need live validation. Source repository: [tcballard/omarchy-101](https://github.com/tcballard/omarchy-101). The welcome-tour expansion is proposed on `feat/welcome-tour-exercises`; no public release has been created.
+This is a development preview. Portable tests, an offscreen Qt lifecycle harness and real process-group cleanup tests pass. Actual Omarchy loading, layer-shell focus, screen placement and behaviour on the target Qt/Quickshell versions still need live validation. Source repository: [tcballard/omarchy-101](https://github.com/tcballard/omarchy-101). The welcome-tour expansion is proposed on `feat/welcome-tour-exercises`; no public release has been created.
 
 ### Try the checkout on Omarchy Quattro
 
@@ -37,7 +37,7 @@ While explicitly enabled and the guide is open, a lazy-loaded Quickshell Hyprlan
 
 The host compositor integration itself is shared; disabling 101's adapter does not shut down the shell's own integration. App recognition is deliberately narrow and unknown apps remain unknown.
 
-Progress is saved by Qt Settings in `$XDG_CONFIG_HOME/omarchy-101.ini` (default `~/.config/omarchy-101.ini`). Only lesson IDs and `observed`/`self` evidence are stored. **Reset lesson progress** clears completion. Removing the plugin leaves that file; delete it separately to remove saved progress. The plugin requires no account or model and makes no network requests. **Find my shortcuts** explicitly runs a fixed read-only `hyprctl binds` query. Bash and GNU coreutils (`timeout` and `head`) bound it to 131,073 output bytes and five seconds, with a one-second forced-termination grace. Closing cancels the request; results from cancelled requests are discarded. Binding commands are never executed.
+Progress is saved by QtCore Settings in `$XDG_CONFIG_HOME/omarchy-101.ini` (default `~/.config/omarchy-101.ini`). Only lesson IDs and `observed`/`self` evidence are stored. **Reset lesson progress**, followed by **Confirm reset**, clears completion. Unreadable or newer-schema progress is preserved; practice remains available for the current session. Removing the plugin leaves that file; delete it separately to remove saved progress. The plugin requires no account or model and makes no network requests. **Find my shortcuts** explicitly runs a fixed read-only `hyprctl binds` query. Bash and GNU coreutils (`timeout` and `head`) bound it to 131,073 output bytes and five seconds, using a process-group KILL deadline. Cancellation sends SIGALRM to the GNU timeout supervisor to terminate the whole group immediately. Closing cancels the request; results from cancelled requests are discarded. Binding commands are never executed.
 
 ## Lessons and Explaining Omarchy
 
@@ -74,3 +74,12 @@ Uses Python 3 for the bundle's manifest validator and Node.js for the pure lesso
 ## Explaining Omarchy companions
 
 101 supports opening a specific lesson from a post's copyable command and showing **Read Tom's explanation** for a curated article mapping. See [ARTICLE-COMPANIONS.md](ARTICLE-COMPANIONS.md). Actual published article URLs are still needed; no article button is shown for unverified mappings.
+
+
+## Runtime verification
+
+CI installs `PySide6-Essentials==6.11.2` and runs `python3 tests/qml/runtime.py`. This harness executes the production QML logic and real QtCore Settings; it replaces only unavailable shell/window, theme, process and compositor boundaries. It checks initial load, targeted lesson selection, real file writes and reload, schema preservation, keyboard focus scrolling, Escape dismissal, failed process startup, cancellation and welcome suppression after reload. It is not live Omarchy evidence.
+
+`tests/process.test.cjs` executes the production command with a fixture helper. It verifies output caps and termination of a helper plus descendant that ignore TERM, both at the deadline and on cancellation.
+
+Known limitation: QtCore Settings does not expose write status to QML. Normal persistence is tested, but a failed disk write is not yet surfaced in the UI. Retain the live release gate for storage failures and the installed host environment.

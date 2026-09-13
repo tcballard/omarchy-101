@@ -76,3 +76,8 @@ test('resume skips completed lessons while retaining old lesson IDs', () => {
  assert.equal(engine.nextIncomplete(all),0);
  assert.equal(engine.restore('{"version":1,"completed":{"help":"self"}}').help,'self');
 });
+test('future or corrupt progress is not eligible for automatic replacement',()=>{
+ for(const data of ['bad','null','{"version":9,"completed":{}}','{"version":1,"completed":[]}','{"version":1,"completed":{"super":true}}']) assert.equal(engine.progressReadable(data),false);
+ assert.equal(engine.progressReadable(''),true);
+ assert.equal(engine.progressReadable('{"version":1,"completed":{"super":"self"}}'),true);
+});

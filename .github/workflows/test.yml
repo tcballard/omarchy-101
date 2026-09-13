@@ -17,3 +17,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: ./tests/run
+      - run: python3 -m pip install PySide6-Essentials==6.11.2
+      - name: Exercise QML lifecycle and real Qt settings offscreen
+        run: python3 tests/qml/runtime.py

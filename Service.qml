@@ -1,5 +1,6 @@
 import QtQuick
 import QtCore
+import "Paths.js" as Paths
 import Quickshell
 import "Welcome.js" as Welcome
 Item {
@@ -11,12 +12,13 @@ Item {
   property bool requested: false
   Settings {
     id: welcome
-    fileName: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/omarchy-101.ini"
+    location: Paths.settingsUrl(Quickshell.env("HOME"), Quickshell.env("XDG_CONFIG_HOME"))
     category: "Welcome"
     property string state: ""
   }
   function acknowledge(action) {
     welcome.state = Welcome.acknowledge(welcome.state, action)
+    welcome.setValue("state", welcome.state)
     welcome.sync()
   }
   Timer {

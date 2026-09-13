@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -eu
+case "${TEST_HYPRCTL_MODE:-success}" in
+ success) printf 'bindd\n\tmodmask: 64\n\tkey: Return\n\tdescription: Terminal\n\tdispatcher: __lua\n' ;;
+ oversized) head -c 262144 /dev/zero | tr '\0' x ;;
+ hang)
+   trap '' TERM
+   printf '%s\n' "$$" > "$TEST_HYPRCTL_PID"
+   sleep 30 &
+   printf '%s\n' "$!" >> "$TEST_HYPRCTL_PID"
+   wait
+   ;;
+ *) exit 2 ;;
+esac
