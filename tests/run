@@ -10,6 +10,6 @@ if command -v omarchy >/dev/null 2>&1; then
   omarchy plugin validate "$root"
 fi
 
-node --test "$root/tests/lessons.test.cjs"
+node --test "$root"/tests/*.test.cjs
 
 printf 'All portable plugin checks passed.\n'

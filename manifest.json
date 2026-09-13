@@ -7,10 +7,12 @@
   "license": "MIT",
   "description": "Learn Omarchy by doing: a welcome tour, guided exercises and optional desktop context.",
   "kinds": [
-    "panel"
+    "panel",
+    "service"
   ],
   "entryPoints": {
-    "panel": "Panel.qml"
+    "panel": "Panel.qml",
+    "service": "Service.qml"
   },
   "keepLoaded": true
 }

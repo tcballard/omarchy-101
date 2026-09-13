@@ -9,14 +9,14 @@
 ## Architecture
 
 - ID: `io.github.tcballard.omarchy-101`; name: `101`; provisional version: 0.1.0.
-- Kind: panel, hosted `Panel.qml`; `keepLoaded` retains the current lesson between summons.
+- Kinds: panel (`Panel.qml`) plus singleton first-run service (`Service.qml`); `keepLoaded` retains the current lesson between summons.
 - Host lifecycle: `open(payloadJson)` / `close()`; input payload ignored intentionally. Repeated open reuses one surface. Closing stops observation and practice.
 - UI: Omarchy `BorderSurface`, `Button`, Color/Style/Border tokens; scrollable at small sizes; on-demand keyboard focus; visible close action and Escape.
-- State: panel owns current lesson, hint and exercise baseline. Qt Settings owns durable completion; schema 1, known IDs and evidence enums only. Restore rejects malformed/oversized payloads. No service or polling required.
+- State: panel owns current lesson, hint and exercise baseline. Qt Settings owns durable completion; schema 1, known IDs and evidence enums only. Restore rejects malformed/oversized payloads. A service owns only the one-time welcome decision. No recurring desktop polling is used.
 - Context: a lazy-loaded `Context.qml` projects the native Hyprland singleton into bounded scalar values. QML evaluates changes; no external processes or raw socket parser.
 - Completion: only events after arming count; workspace change must stay on the baseline monitor and use numbered workspaces. Terminal exercise recognises a fixed app-class set. Manual completion remains separately labelled.
 - Dependencies: Omarchy Quattro, its Quickshell Hyprland module, QtQuick and QtCore Settings. Node/Python are development-only.
-- Network, credentials, privileged operations: none.
+- Network, credentials, privileged operations: none. User-requested shortcut lookup runs `hyprctl binds` in a fixed, bounded Bash/coreutils pipeline; never dispatches binding commands.
 - Failure: missing context leaves self-guided lessons available (including Loader import failure). Unknown apps do not become guessed terminals. A disappearing monitor cannot satisfy a workspace check. Disk-write failures need live verification and user-visible handling before release.
 - Removal: host removes plugin; independent progress INI remains, as documented.
 
@@ -40,8 +40,17 @@ Before releasing:
 4. Exercise a terminal already open, a newly focused terminal, unknown app classes, workspace switching and monitor switching. Match observed/self labels to actual evidence.
 5. Restart the shell; verify progress restore. Test missing/unwritable settings and provide actionable persistence errors.
 6. Confirm local-only context, no screenshot/title persistence, and explicit reset/removal semantics.
-7. Add first-enable tour offer before describing this as automatic onboarding.
+7. Verify first-enable invitation, Not now, restart suppression and manual reopening on Omarchy.
 
 ## Deferred screen explanation contract
 
 A later Rust helper should own screenshot capture, bounded model requests and cancellation if that slice needs processes/network. User invokes capture, previews/redacts it, chooses local or remote provider and explicitly sends it. Explanations cite visible evidence and distinguish uncertainty; no shell command is executed from screen instructions. Avoid a new service until state ownership requires it.
+
+
+## 2026-09-13: welcome tour and exercises
+
+- Added first-enable service using the current `PluginShellApi.summon` capability for its own plugin ID. Waits for shell injection; at most five one-second attempts. Panel acknowledges only on opening; decision persists via Qt Settings. No exclusive focus or automatic observation.
+- Added launcher (self-confirmed), browser and same-workspace focus exercises. Stable earlier lesson IDs preserve saved completion. A lesson chooser enables repeat practice and the final completion message requires all seven lessons.
+- Added explicit shortcut lookup. Plain `hyprctl binds` avoids upstream's documented malformed JSON issue. Exact action descriptions and numbered workspace dispatchers only; unresolved symbols/modifiers/submaps do not become guessed shortcuts. Output capped at the producer, timed process group, cancellation guard, no overlapping requests, no command execution from parsed data. Only numeric workspace arguments survive parsing.
+- Sources checked: `shell/services/PluginShellApi.qml` and `bin/omarchy-menu-keybindings` on upstream quattro, 2026-09-13. The latter documents JSON and Lua keycode limitations. 101 does not execute the user's Lua configuration to recover unresolved bindings.
+- 21 portable tests pass (lesson transitions, welcome decisions, real-style binding records, limits, submaps, malformed data). Manifest validation passes. Live QML execution, persistence failures, first-enable timing and timeout descendant cleanup on target remain unverified.
