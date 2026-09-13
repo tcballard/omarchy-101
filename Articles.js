@@ -8,6 +8,7 @@ var catalog = {
 function safeUrl(url) {
   if (typeof url !== "string" || url.length > 2048) return "";
   if (/^https:\/\/tcballard\.substack\.com\/p\/[a-z0-9-]+$/.test(url)) return url;
+  if (/^https:\/\/omarchy\.tcballard\.dev\/explaining\/[a-z0-9]+(?:-[a-z0-9]+)*\/?$/.test(url)) return url;
   if (/^https:\/\/tcballard\.dev\/[a-zA-Z0-9/_-]+$/.test(url)) return url;
   if (/^https:\/\/x\.com\/tcballard\/status\/[0-9]+$/.test(url)) return url;
   return "";

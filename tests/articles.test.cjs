@@ -18,7 +18,9 @@ test('unverified article titles stay hidden',()=>{
  assert.equal(ctx.forLesson('__proto__'),null);
 });
 test('article URLs reject commands, lookalike hosts, credentials and tracking queries',()=>{
- for(const url of ['file:///tmp/a','javascript:alert(1)','https://tcballard.substack.com.evil/p/a','https://tcballard.dev@evil/a','https://tcballard.substack.com/p/a?redirect=evil']) assert.equal(ctx.safeUrl(url),'');
+ for(const url of ['https://omarchy.tcballard.dev.evil/explaining/super','https://omarchy.tcballard.dev@evil/explaining/super','https://omarchy.tcballard.dev/today/example','https://omarchy.tcballard.dev/explaining','file:///tmp/a','javascript:alert(1)','https://tcballard.substack.com.evil/p/a','https://tcballard.dev@evil/a','https://tcballard.substack.com/p/a?redirect=evil']) assert.equal(ctx.safeUrl(url),'');
+ assert.equal(ctx.safeUrl('https://omarchy.tcballard.dev/explaining/super-key'),'https://omarchy.tcballard.dev/explaining/super-key');
+ assert.equal(ctx.safeUrl('https://omarchy.tcballard.dev/explaining/super-key/'),'https://omarchy.tcballard.dev/explaining/super-key/');
  assert.equal(ctx.safeUrl('https://tcballard.substack.com/p/example'),'https://tcballard.substack.com/p/example');
 });
 test('a curated entry exposes exactly its title and checked URL',()=>{
